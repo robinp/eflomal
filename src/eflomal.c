@@ -1136,6 +1136,20 @@ struct text* text_read(const char *filename) {
     return text;
 }
 
+void check_openmp() {
+    int n_threads = 0;
+#pragma omp parallel
+    {
+#pragma omp atomic
+        n_threads += 1;
+    }
+    if (n_threads > 1) {
+        fprintf(stderr, "OpenMP is active! Number of threads: %d\n", n_threads);
+    } else {
+        fprintf(stderr, "Running without OpenMP concurrency?\n");
+    }
+}
+
 static void align(
         int reverse,
         const struct text *source,
@@ -1340,6 +1354,10 @@ int main(int argc, char *argv[]) {
     if (model == -1) {
         help(argv[0]);
         return 1;
+    }
+
+    if (!quiet) {
+        check_openmp();
     }
 
     if (score_model == -1) score_model = model;

@@ -61,6 +61,9 @@ cpdef tuple read_text(pyfile, bool lowercase, int prefix_len, int suffix_len):
 cpdef write_text(pyfile, tuple sents, int voc_size):
     """Write a sequence of sentences in the format expected by eflomal
 
+    NOTE(token-limit): if more than 1024 tokens are in a sentence, an empty
+    sentence is written instead of that sentence.
+
     Arguments:
     pyfile -- Python file object to write to
     sents -- tuple of sentences, each encoded as np.ndarray(uint32)
@@ -74,6 +77,7 @@ cpdef write_text(pyfile, tuple sents, int voc_size):
     fprintf(f, '%d %d\n', len(sents), voc_size)
     for sent in sents:
         n = len(sent)
+        # NOTE(token-limit).
         if n < 0x400:
             i = 0
             fprintf(f, '%d', n)
