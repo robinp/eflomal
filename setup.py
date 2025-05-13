@@ -27,7 +27,7 @@ tests_require = ['pytest']
 
 setup(
     name='eflomal',
-    version='1.0.0-beta2',
+    version='1.0.1',
     author='Robert Östling',
     url='https://github.com/robertostling/eflomal',
     license='GNU GPLv3',
@@ -36,6 +36,7 @@ setup(
     long_description_content_type='text/markdown',
     install_requires=install_requires,
     tests_require=tests_require,
+    python_requires='>=3.12',
     extras_require={'test': tests_require},
     packages=['eflomal'],
     package_dir={'': 'python'},
@@ -43,6 +44,6 @@ setup(
         'eflomal': ['bin/eflomal']
     },
     ext_modules=cythonize(cyalign_ext, language_level='3'),
-    scripts=['python/scripts/eflomal-align', 'python/scripts/eflomal-makepriors'],
+    scripts=['python/scripts/eflomal-align', 'python/scripts/eflomal-makepriors', 'python/scripts/eflomal-server'],
     cmdclass={'build_py': build_py}
 )

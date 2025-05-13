@@ -7,7 +7,6 @@ import os
 import sys
 import math
 import subprocess
-from tempfile import NamedTemporaryFile
 
 import numpy as np
 
@@ -163,4 +162,5 @@ def align(
     if not quiet: sys.stderr.write(' '.join(args) + '\n')
     if use_gdb: args = ['gdb', '-ex=run', '--args'] + args
     subprocess.run(args, check=True)
+
 

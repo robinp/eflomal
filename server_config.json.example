@@ -1,0 +1,8 @@
+{
+  "aligners": [
+    { "name": "some-name"
+    , "priors": "/path/to/prior"
+    }
+  ],
+  "log_level": "info"
+}

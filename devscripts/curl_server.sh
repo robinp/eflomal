@@ -1,0 +1,1 @@
+curl -X POST $@ localhost:5000/api/align/v1 -H 'Content-type: application/json' -d '{"aligner": "my-align", "samplers": 3, "iters": {"1":64, "2": 32, "3": 8}, "sents":[{"s":"Die Kuh", "t":"The cow"}]}'

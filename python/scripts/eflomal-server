@@ -1,0 +1,9 @@
+#!/bin/env bash
+set -eu
+
+FLASK_APP_CONFIG=${FLASK_APP_CONFIG:-$(realpath server_config.json)} gunicorn \
+    "eflomal.server:create_app()" \
+    -b ${FLASK_HOST:-127.0.0.1}:${FLASK_PORT:-5000} \
+    --access-logfile \
+    - \
+    --workers=${WORKERS:-2}

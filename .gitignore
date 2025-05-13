@@ -33,3 +33,19 @@ python/eflomal/bin
 # Debug files
 *.dSYM/
 *.su
+
+# ctags
+tags
+*.TAG
+
+# Generated
+python/eflomal/eflomal.c
+
+# Virtualenv and build
+pyvenv.cfg
+bin
+build
+lib
+lib64
+**/*.egg-info
+**/__pycache__

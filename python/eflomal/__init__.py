@@ -6,10 +6,10 @@ from operator import itemgetter
 from tempfile import NamedTemporaryFile
 
 from .cython import align, read_text, write_text
-
+import time
+#import shutil
 
 logger = logging.getLogger(__name__)
-
 
 class Aligner:
     """Aligner class"""
@@ -27,12 +27,80 @@ class Aligner:
         self.null_prior = null_prior
         self.source_prefix_len = source_prefix_len
         self.source_suffix_len = source_suffix_len
+        self.source_lowercase = True
         self.target_prefix_len = target_prefix_len
         self.target_suffix_len = target_suffix_len
+        self.target_lowercase = True
+        #
+        self._preloaded_priors = None
+        # Note(preloaded-priors,development): Set to True when developing to
+        # ensure consistency between normal and preloaded priors.
+        self._assert_preloaded_prior_eq = False
+
+    def preload_priors(self, priors_input):
+        """
+        Preloads the priors into quick to index structures. Useful in server
+        mode, where individual requests typically use a small part of the
+        prior words, so iterating the full prior would be wasteful.
+
+        Note that the preprocessing performs the same text transform operations
+        that the sentence word transformer would do. So the preprocessed prior
+        is already in terms of transformed words, and so is only suitable to
+        use with sentence words using the same transformation (which, for the
+        same Aligner, is always true).
+
+        """
+        t0 = time.time()
+        priors = read_priors(priors_input)
+        priors_list, hmmf_priors, hmmr_priors, ferf_priors, ferr_priors = priors
+        src_tf = TextIndex({}, self.source_prefix_len, self.source_suffix_len,
+                           self.source_lowercase)
+        trg_tf = TextIndex({}, self.target_prefix_len, self.target_suffix_len,
+                           self.target_lowercase)
+
+        priors_tree = {}
+        # TODO(NULL): <NULL> is not supported. Could.
+        for src_word, trg_word, alpha in priors_list:
+            src_word = src_tf.transform(src_word)
+            trg_word = trg_tf.transform(trg_word)
+
+            if src_word not in priors_tree:
+                priors_tree[src_word] = {}
+            trg_tree = priors_tree[src_word]
+
+            trg_tree[trg_word] = trg_tree.get(trg_word, 0.0) + alpha
+
+        ferf_map = {}
+        for src_word, fert, alpha in ferf_priors:
+            # Note(preloaded-priors,development): for example comment following
+            # line to trigger an orig vs preloaded prior difference check.
+            src_word = src_tf.transform(src_word)
+
+            if src_word not in ferf_map:
+                ferf_map[src_word] = {}
+            smap = ferf_map[src_word]
+            smap[fert] = smap.get(fert, 0.0) + alpha
+
+        ferr_map = {}
+        for trg_word, fert, alpha in ferr_priors:
+            trg_word = trg_tf.transform(trg_word)
+
+            if trg_word not in ferr_map:
+                ferr_map[trg_word] = {}
+            smap = ferr_map[trg_word]
+            smap[fert] = smap.get(fert, 0.0) + alpha
+
+        dt = time.time() - t0
+        logger.info(f"Prior preprocessing took {dt} seconds")
+
+        preloaded = (priors_tree, ferf_map, ferr_map)
+
+        self._preloaded_priors = (priors, preloaded)
 
     def prepare_files(self, src_input_file, src_output_file,
                       trg_input_file, trg_output_file,
-                      priors_input_file, priors_output_file):
+                      priors_input_file,
+                      priors_output_file, orig_priors_output_file=None):
         """Convert text files to formats used by eflomal
 
         Inputs should be file objects or any iterables over lines. Outputs
@@ -51,7 +119,18 @@ class Aligner:
                 n_src_sents, n_trg_sents)
             raise ValueError('Mismatched file sizes')
         logger.info('Prepared %d sentences for alignment', n_src_sents)
-        if priors_input_file:
+        if self._preloaded_priors:
+            t0 = time.time()
+            (priors, _) = self._preloaded_priors
+            preloaded_to_eflomal_priors_file(self._preloaded_priors, src_index,
+                                             trg_index, priors_output_file)
+            dt = time.time() - t0
+            logger.info(f"Prior calculation took {dt} seconds using preloaded")
+            if orig_priors_output_file is not None:
+                # output normal processing-based priors for comparison
+                to_eflomal_priors_file(
+                    priors, src_index, trg_index, orig_priors_output_file)
+        elif priors_input_file:
             logger.info('Reading lexical priors...')
             priors = read_priors(priors_input_file)
             to_eflomal_priors_file(
@@ -64,19 +143,46 @@ class Aligner:
         """Run alignment for the input"""
         with NamedTemporaryFile('wb') as srcf, \
              NamedTemporaryFile('wb') as trgf, \
-             NamedTemporaryFile('w', encoding='utf-8') as priorsf:
-            # Write input files for the eflomal binary
-            self.prepare_files(
-                src_input, srcf, trg_input, trgf, priors_input, priorsf)
+             NamedTemporaryFile('w', encoding='utf-8',
+                                delete_on_close=False) as priorsf:
+
+            use_prior = self._preloaded_priors or priors_input
+            if self._preloaded_priors and self._assert_preloaded_prior_eq:
+                with NamedTemporaryFile('w', encoding='utf-8',
+                                        delete_on_close=False) as orig_priorsf:
+                    self.prepare_files(
+                        src_input, srcf, trg_input, trgf, priors_input,
+                        priorsf, orig_priorsf)
+                    # Note: opening NamedTemporaryFile-s is safe as long as
+                    #  1) happens using context-manager, and 2) delete_on_close
+                    #  was set to False, as above.
+                    with open(orig_priorsf.name, 'r') as of, \
+                         open(priorsf.name, 'r') as f:
+                        orig = of.read()
+                        pre = f.read()
+                        if orig != pre:
+                            #shutil.copy(orig_priorsf.name, "/tmp/prior.orig")
+                            #shutil.copy(priorsf.name, "/tmp/prior.preloaded")
+                            raise Exception("===== ERROR! Preloaded prior leads to differing processed prior! ======")
+            else:
+                # Write input files for the eflomal binary
+                #
+                # Note(preloaded-priors): if priors were preloaded, then
+                # priors_input is not used at this point (but then likely they
+                # are not passed either).
+                #
+                self.prepare_files(
+                    src_input, srcf, trg_input, trgf, priors_input, priorsf)
+
             # Run wrapper for the eflomal binary
+            t0 = time.time()
             align(srcf.name, trgf.name,
                   links_filename_fwd=links_filename_fwd,
                   links_filename_rev=links_filename_rev,
                   statistics_filename=None,
                   scores_filename_fwd=scores_filename_fwd,
                   scores_filename_rev=scores_filename_rev,
-                  priors_filename=(None if priors_input is None
-                                   else priorsf.name),
+                  priors_filename=(priorsf.name if use_prior else None),
                   model=self.model,
                   score_model=self.score_model,
                   n_iterations=self.n_iterations,
@@ -85,25 +191,33 @@ class Aligner:
                   rel_iterations=self.rel_iterations,
                   null_prior=self.null_prior,
                   use_gdb=use_gdb)
+            dt = time.time() - t0
+            logger.info(f"Align call took {dt} seconds")
 
 
 class TextIndex:
     """Word to index mapping with lowercasing and prefix/suffix removal"""
 
-    def __init__(self, index, prefix_len=0, suffix_len=0):
+    def __init__(self, index, prefix_len=0, suffix_len=0, lowercase=True):
         self.index = index
         self.prefix_len = prefix_len
         self.suffix_len = suffix_len
+        self.lowercase = lowercase
 
     def __len__(self):
         return len(self.index)
 
-    def __getitem__(self, word):
-        word = word.lower()
+    def transform(self, word):
+        if self.lowercase:
+            word = word.lower()
         if self.prefix_len != 0:
             word = word[:self.prefix_len]
         if self.suffix_len != 0:
             word = word[-self.suffix_len:]
+        return word
+
+    def __getitem__(self, word):
+        word = self.transform(word)
         e = self.index.get(word)
         if e is not None:
             e = e + 1
@@ -315,3 +429,68 @@ def to_eflomal_priors_file(priors, src_index, trg_index, outfile):
     for (f, fert), alpha in sorted(ferr_indexed.items()):
         print('%d %d %g' % (f, fert, alpha), file=outfile)
     outfile.flush()
+
+def preloaded_to_eflomal_priors_file(pp, src_index, trg_index, outfile):
+    """Write priors to a file read by eflomal binary
+
+    Arguments:
+
+    priors - tuple of priors (priors_list, hmmf_priors, hmmr_priors,
+             ferf_priors, ferr_priors)
+    src_index - vocabulary index for source text
+    tgt_index - vocabulary index for target text
+    outfile - file object for output
+
+    """
+    (priors, preloaded_priors) = pp
+    priors_list, hmmf_priors, hmmr_priors, ferf_priors, ferr_priors = priors
+    (priors_tree, ferf_map, ferr_map) = preloaded_priors
+
+    priors_indexed = {}
+    # TODO(NULL): not yet supported.
+    for src_word, e in src_index.index.items():
+        e = e + 1
+        trg_tree = priors_tree.get(src_word)
+        if trg_tree is None: continue
+        for trg_word, f in trg_index.index.items():
+            f = f + 1
+            alpha = trg_tree.get(trg_word)
+            if alpha is not None:
+                priors_indexed[(e, f)] = priors_indexed.get((e, f), 0.0) + alpha
+
+    logger.info('%d (of %d) pairs of lexical priors used',
+                len(priors_indexed), len(priors_list))
+
+    ferf_indexed = {}
+    for src_word, e in src_index.index.items():
+        e = e + 1
+        falphas = ferf_map.get(src_word)
+        if falphas is None: continue
+        for fert, alpha in falphas.items():
+            ferf_indexed[(e, fert)] = ferf_indexed.get((e, fert), 0.0) + alpha
+
+    ferr_indexed = {}
+    for trg_word, f in trg_index.index.items():
+        f = f + 1
+        falphas = ferr_map.get(trg_word)
+        if falphas is None: continue
+        for fert, alpha in falphas.items():
+            ferr_indexed[(f, fert)] = ferr_indexed.get((f, fert), 0.0) + alpha
+
+    print('%d %d %d %d %d %d %d' % (
+        len(src_index)+1, len(trg_index)+1, len(priors_indexed),
+        len(hmmf_priors), len(hmmr_priors),
+        len(ferf_indexed), len(ferr_indexed)),
+          file=outfile)
+    for (e, f), alpha in sorted(priors_indexed.items()):
+        print('%d %d %g' % (e, f, alpha), file=outfile)
+    for jump, alpha in sorted(hmmf_priors.items()):
+        print('%d %g' % (jump, alpha), file=outfile)
+    for jump, alpha in sorted(hmmr_priors.items()):
+        print('%d %g' % (jump, alpha), file=outfile)
+    for (e, fert), alpha in sorted(ferf_indexed.items()):
+        print('%d %d %g' % (e, fert, alpha), file=outfile)
+    for (f, fert), alpha in sorted(ferr_indexed.items()):
+        print('%d %d %g' % (f, fert, alpha), file=outfile)
+    outfile.flush()
+
