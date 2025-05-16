@@ -60,7 +60,7 @@ def create_app():
         aligner = aligners[req['aligner']]
 
         iters = [32, 32, 32]
-        if 'iters' in req:
+        if 'iters' in req and req['iters']:
             req_iters = req['iters']
             if "1" in req_iters: iters[0] = req_iters["1"]
             if "2" in req_iters: iters[1] = req_iters["2"]

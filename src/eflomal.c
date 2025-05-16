@@ -1166,6 +1166,7 @@ static void align(
         const char *priors_filename)
 {
     double t0;
+    const char fr = reverse ? 'R' : 'F';
     random_state state;
     struct text_alignment *tas[n_samplers];
 
@@ -1188,8 +1189,8 @@ static void align(
         }
     }
     if (!quiet)
-        fprintf(stderr, "Created alignment structures: %.3f s\n",
-                seconds() - t0);
+        fprintf(stderr, "[%c] Created alignment structures: %.3f s\n",
+                fr, seconds() - t0);
 
     t0 = seconds();
 #pragma omp parallel for
@@ -1202,13 +1203,15 @@ static void align(
         text_alignment_randomize(tas[i], &local_state);
     }
     if (!quiet)
-        fprintf(stderr, "Randomized alignment: %.3f s\n", seconds() - t0);
+        fprintf(stderr, "[%c] Randomized alignment: %.3f s\n", fr,
+                seconds() - t0);
 
     for (int m=1; m<=model; m++) {
         if (n_iters[m-1]) {
             if (!quiet)
-                fprintf(stderr, "Aligning with model %d (%d iterations)\n",
-                        m, n_iters[m-1]);
+                fprintf(stderr,
+                        "[%c] Aligning with model %d (%d iterations)\n", fr, m,
+                        n_iters[m-1]);
             t0 = seconds();
 
 #pragma omp parallel for
@@ -1227,20 +1230,21 @@ static void align(
                 }
             }
             if (!quiet)
-                fprintf(stderr, "Done: %.3f s\n", seconds() - t0);
+                fprintf(stderr, "[%c] Done: %.3f s\n", fr, seconds() - t0);
         }
     }
 
     t0 = seconds();
     text_alignment_sample(tas[0], &state, NULL, tas, n_samplers);
     if (!quiet)
-        fprintf(stderr, "Final argmax iteration: %.3f s\n", seconds() - t0);
+        fprintf(stderr, "[%c] Final argmax iteration: %.3f s\n", fr,
+                seconds() - t0);
 
     struct text_alignment *ta = tas[0];
 
     if (stats_filename != NULL) {
         if (!quiet)
-            fprintf(stderr, "Writing alignment statistics to %s\n",
+            fprintf(stderr, "[%c] Writing alignment statistics to %s\n", fr,
                     stats_filename);
         FILE *file = (!strcmp(stats_filename, "-"))? stdout
                      : fopen(stats_filename, "w");
@@ -1251,7 +1255,8 @@ static void align(
 
     if (links_filename != NULL) {
         if (!quiet)
-            fprintf(stderr, "Writing alignments to %s for %Zu sentencess\n",
+            fprintf(stderr,
+                    "[%c] Writing alignments to %s for %Zu sentencess\n", fr,
                     links_filename, ta->target->n_sentences);
         FILE *file = (!strcmp(links_filename, "-"))? stdout
                      : fopen(links_filename, "w");
@@ -1267,10 +1272,11 @@ static void align(
         FILE *file = (!strcmp(scores_filename, "-"))? stdout
                      : fopen(scores_filename, "w");
 
+        t0 = seconds();
         if (!quiet)
             fprintf(stderr,
-                    "Computing scores using model %d for %Zu sentences\n",
-                    score_model, ta->source->n_sentences);
+                    "[%c] Computing scores using model %d for %Zu sentences\n",
+                    fr, score_model, ta->source->n_sentences);
 
         // Switch to whatever model is specified for scoring
         ta->model = score_model;
@@ -1281,6 +1287,8 @@ static void align(
 
         if (file != stdout) fclose(file);
         free(scores);
+        if (!quiet)
+            fprintf(stderr, "[%c] Scoring took: %.3f s\n", fr, seconds() - t0);
     }
 
 
