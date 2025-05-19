@@ -11,6 +11,32 @@ import sys, argparse, os
 logger = logging.getLogger(__name__)
 
 
+class LineSkipIterator:
+    def __init__(self, wrapped, skip=None, limit=None):
+        self._wrapped = wrapped
+        self._left = limit
+        if skip:
+            for i in range(0, skip): next(wrapped)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._left is not None:
+            if self._left <= 0:
+                raise StopIteration
+            else:
+                self._left -= 1
+        return next(self._wrapped)
+
+    def __enter__(self):
+        self._ctx = self._wrapped.__enter__()
+        return self
+
+    def __exit__(self, et, ev, tb):
+        return self._wrapped.__exit__(et, ev, tb)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='eflomal: efficient low-memory aligner')
@@ -70,6 +96,14 @@ def main():
     parser.add_argument(
         '-i', '--input', dest='joint_filename', type=str, metavar='filename',
         help='fast_align style ||| separated file')
+    parser.add_argument(
+        '-k', '--skip-lines', dest='skip_lines', default=None, metavar='X',
+        type=int,
+        help='Number of initial lines to skip in input')
+    parser.add_argument(
+        '-n', '--n-lines', dest='keep_lines', default=None, metavar='X',
+        type=int,
+        help='Number of lines to process at most (after optional skipping)')
     parser.add_argument(
         '-f', '--forward-links', dest='links_filename_fwd', type=str,
         metavar='filename',
@@ -137,17 +171,28 @@ def main():
             logger.info('Reading source/target sentences from %s...',
                         args.joint_filename)
             src_in_f = stack.enter_context(
-                open(args.joint_filename, 'r', encoding='utf-8'))
+                LineSkipIterator(
+                    open(args.joint_filename, 'r', encoding='utf-8'),
+                    skip = args.skip_lines,
+                    limit = args.keep_lines))
             src_input = sentences_from_joint_file(src_in_f, 0)
             trg_in_f = stack.enter_context(
-                open(args.joint_filename, 'r', encoding='utf-8'))
+                LineSkipIterator(
+                    open(args.joint_filename, 'r', encoding='utf-8'),
+                    skip = args.skip_lines,
+                    limit = args.keep_lines))
             trg_input = sentences_from_joint_file(trg_in_f, 1)
         else:
             src_input = stack.enter_context(
-                open(args.source_filename, 'r', encoding='utf-8'))
+                LineSkipIterator(
+                    open(args.source_filename, 'r', encoding='utf-8'),
+                    skip = args.skip_lines,
+                    limit = args.keep_lines))
             trg_input = stack.enter_context(
-                open(args.target_filename, 'r', encoding='utf-8'))
-
+                LineSkipIterator(
+                    open(args.target_filename, 'r', encoding='utf-8'),
+                    skip = args.skip_lines,
+                    limit = args.keep_lines))
         aligner.align(src_input, trg_input,
                       links_filename_fwd=args.links_filename_fwd,
                       links_filename_rev=args.links_filename_rev,

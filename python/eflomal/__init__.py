@@ -196,7 +196,13 @@ class Aligner:
 
 
 class TextIndex:
-    """Word to index mapping with lowercasing and prefix/suffix removal"""
+    """
+    Word to index mapping with lowercasing and prefix/suffix removal.
+
+    Note that the returned indices are one larger than the indices in the
+    passed-in index, due to reserving output index 0 to the <NULL> token.
+
+    """
 
     def __init__(self, index, prefix_len=0, suffix_len=0, lowercase=True):
         self.index = index
@@ -266,6 +272,10 @@ def calculate_priors(src_sentences, trg_sentences,
 
     If `reverse` is True, compute priors for the opposite alignment
     direction.
+
+    Note: stored priors are agnostic of the word transform used during
+    alignment, and is in terms of the original sentence words.
+
     """
     priors = Counter()
     hmmf_priors = Counter()
@@ -274,6 +284,8 @@ def calculate_priors(src_sentences, trg_sentences,
     ferr_priors = Counter()
     for lineno, (src_sent, trg_sent, fwd_line, rev_line) in enumerate(
             zip(src_sentences, trg_sentences, fwd_alignments, rev_alignments)):
+        if lineno % 10000 == 0:
+            logger.info('processing line #%d', lineno)
         src_sent = src_sent.strip().split()
         trg_sent = trg_sent.strip().split()
         fwd_links = [tuple(map(int, s.split('-'))) for s in fwd_line.split()]
