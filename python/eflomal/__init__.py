@@ -295,7 +295,9 @@ def calculate_priors(src_sentences, trg_sentences,
                 logger.error('alignment out of bounds in line %d: '
                              '(%d, %d)', lineno + 1, i, j)
                 raise ValueError('Invalid input on line %d' % lineno + 1)
-            priors[(src_sent[i], trg_sent[j])] += 1
+            s, t = src_sent[i], trg_sent[j]
+            k = (t,s) if rev_alignments else (s,t)
+            priors[k] += 1
 
         last_j = -1
         last_i = -1
