@@ -67,6 +67,14 @@ def create_app():
             if "3" in req_iters: iters[2] = req_iters["3"]
         iters = tuple(iters)
 
+        trust_sents = True
+        if 'trust_sents' in req:
+            f = req['trust_sents']
+            if type(f) == bool:
+                trust_sents = f
+            else:
+                raise InputFormatException("trust_sents should be bool")
+
         samplers = 3   # copied default
         if 'samplers' in req:
             samplers = int(req['samplers'])
@@ -78,7 +86,7 @@ def create_app():
                 if type(f) == list:
                     f = ' '.join(f)
                 if type(f) != str:
-                    raise InputFormatException("Sentence should be string")
+                    raise InputFormatException("Sentence should be string or list of strings")
                 yield f
         src_iter = input_iter("s")
         trg_iter = input_iter("t")
@@ -94,6 +102,7 @@ def create_app():
                 aligner.align(src_iter, trg_iter,
                               links_filename_fwd=fwd_fp,
                               links_filename_rev=rev_fp,
+                              trust_sents=trust_sents,
                               quiet=log_level != "debug")
             except InputFormatException as e:
                 return make_response(e.msg, 400)

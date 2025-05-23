@@ -139,7 +139,8 @@ class Aligner:
     def align(self, src_input, trg_input,
               links_filename_fwd=None, links_filename_rev=None,
               scores_filename_fwd=None, scores_filename_rev=None,
-              priors_input=None, quiet=True, use_gdb=False):
+              priors_input=None, trust_sents=True,
+              quiet=True, use_gdb=False):
         """Run alignment for the input"""
         with NamedTemporaryFile('wb') as srcf, \
              NamedTemporaryFile('wb') as trgf, \
@@ -187,6 +188,7 @@ class Aligner:
                   score_model=self.score_model,
                   n_iterations=self.n_iterations,
                   n_samplers=self.n_samplers,
+                  n_clean=-1 if trust_sents else 0,
                   quiet=quiet,
                   rel_iterations=self.rel_iterations,
                   null_prior=self.null_prior,

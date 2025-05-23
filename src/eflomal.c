@@ -100,7 +100,7 @@ struct text_alignment {
     // this number of sentences contain clean parallel data and should
     // contribute to the statistics (anything after this should still be
     // aligned, but don't trust the statistics):
-    size_t n_clean; // 0 (the default) means all sentences should be used
+    int32_t n_clean; // -1 (the default) means all sentences should be used
     count null_prior;
 };
 
@@ -230,7 +230,7 @@ void text_alignment_sample(
     count *jump_counts = ta->jump_counts;
     count *fert_counts = ta->fert_counts;
     const size_t n_sentences =
-        ta->n_clean? ta->n_clean: ta->target->n_sentences;
+        ta->n_clean >= 0 ? ta->n_clean: ta->target->n_sentences;
 
     // the fertility distributions (unlike the jump and lexical distributions)
     // are sampled explicitly, and the categorical distributions are fixed
@@ -683,7 +683,7 @@ void text_alignment_make_counts(struct text_alignment *ta) {
         }
     }
     const size_t n_sentences =
-        ta->n_clean? ta->n_clean: ta->target->n_sentences;
+        ta->n_clean >= 0 ? ta->n_clean: ta->target->n_sentences;
     for (size_t sent=0; sent<n_sentences; sent++) {
         link_t *links = ta->sentence_links[sent];
         if (links == NULL) continue;
@@ -971,7 +971,7 @@ struct text_alignment *text_alignment_create(
     ta->model = 1;
     ta->source = source;
     ta->target = target;
-    ta->n_clean = 0;
+    ta->n_clean = -1;
 
     // These should be initialized with text_alignment_load_priors()
     ta->source_prior = NULL;
@@ -1158,6 +1158,7 @@ static void align(
         int score_model,
         double null_prior,
         int n_samplers,
+        int n_clean,
         int quiet,
         const int *n_iters,
         const char *links_filename,
@@ -1176,6 +1177,7 @@ static void align(
     for (int i=0; i<n_samplers; i++) {
         tas[i] = text_alignment_create(
                 (reverse? target: source), (reverse? source: target));
+        tas[i]->n_clean = n_clean;
         tas[i]->null_prior = null_prior;
         if (priors_filename != NULL) {
             // TODO: since read-only, could use the pointer from tas[0]
@@ -1227,7 +1229,11 @@ static void align(
 
                 for (int j=0; j<n_iters[m-1]; j++) {
                     text_alignment_sample(tas[i], &local_state, NULL, NULL, 1);
+                    //if (!quiet)
+                    //  fprintf(stderr, ".%c%d", fr, i);
                 }
+                //if (!quiet)
+                //  fprintf(stderr, "\n");  // Racy but better than nothing.
             }
             if (!quiet)
                 fprintf(stderr, "[%c] Done: %.3f s\n", fr, seconds() - t0);
@@ -1314,14 +1320,14 @@ int main(int argc, char *argv[]) {
          *stats_filename = NULL,
          *scores_filename_fwd = NULL, *scores_filename_rev = NULL;
     int n_iters[3];
-    int n_samplers = 1, quiet = 0, model = -1, score_model = -1;
+    int n_samplers = 1, n_clean = -1, quiet = 0, model = -1, score_model = -1;
     double null_prior = 0.2;
 
     n_iters[0] = 1; n_iters[1] = 1; n_iters[2] = 1;
 
     omp_set_nested(1);
 
-    while ((opt = getopt(argc, argv, "s:t:p:f:r:S:F:R:1:2:3:n:qm:M:N:h"))
+    while ((opt = getopt(argc, argv, "s:t:p:f:r:S:F:R:1:2:3:n:c:qm:M:N:h"))
             != -1)
     {
         switch(opt) {
@@ -1337,6 +1343,7 @@ int main(int argc, char *argv[]) {
             case '2': n_iters[1] = atoi(optarg); break;
             case '3': n_iters[2] = atoi(optarg); break;
             case 'n': n_samplers = atoi(optarg); break;
+            case 'c': n_clean = atoi(optarg); break;
             case 'q': quiet = 1; break;
             case 'm': model = atoi(optarg);
                       if (model < 1 || model > 3) {
@@ -1397,7 +1404,7 @@ int main(int argc, char *argv[]) {
                 (!reverse && links_filename_fwd == NULL &&
                  links_filename_rev == NULL))
             align(reverse, source, target, model, score_model, null_prior,
-                  n_samplers,
+                  n_samplers, n_clean,
                   quiet, n_iters, links_filename, stats_filename,
                   scores_filename, priors_filename);
     }

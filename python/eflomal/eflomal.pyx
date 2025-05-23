@@ -103,6 +103,7 @@ def align(
         int score_model=0,
         tuple n_iterations=None,
         int n_samplers=1,
+        int n_clean=-1,
         bool quiet=True,
         double rel_iterations=1.0,
         double null_prior=0.2,
@@ -123,6 +124,8 @@ def align(
                     not given the numbers will be computed automatically based
                     on rel_iterations
     n_samplers -- number of independent samplers to run
+    n_clean -- number of first N sentences to deem clean and use for stats
+               update (-1 = all).
     quiet -- if True, suppress output
     rel_iterations -- number of iterations relative to the default
     """
@@ -147,6 +150,7 @@ def align(
             '-s', source_filename,
             '-t', target_filename,
             '-n', str(n_samplers),
+            '-c', str(n_clean),
             '-N', str(null_prior),
             '-1', str(n_iterations[0])]
     if quiet: args.append('-q')
