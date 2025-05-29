@@ -4,6 +4,7 @@ import json
 import os
 import functools
 import time
+import math
 
 from eflomal import Aligner, sentences_from_joint_file
 from tempfile import TemporaryDirectory
@@ -79,22 +80,37 @@ def create_app():
         if 'samplers' in req:
             samplers = int(req['samplers'])
 
+        scoring = True
+        if 'scoring' in req:
+            f = req['scoring']
+            if type(f) == bool:
+                scoring = f
+            else:
+                raise InputFormatException("scoring should be bool")
+
         num_sents = len(req['sents'])
-        def input_iter(field):
-            for sent in req['sents']:
+        sent_stoks = [0] * num_sents
+        sent_ttoks = [0] * num_sents
+        def input_iter(field, toks):
+            for n, sent in enumerate(req['sents']):
                 f = sent[field]
                 if type(f) == list:
+                    toks[n] = len(f)
                     f = ' '.join(f)
-                if type(f) != str:
+                elif type(f) == str:
+                    toks[n] = len(f.split())
+                else:
                     raise InputFormatException("Sentence should be string or list of strings")
                 yield f
-        src_iter = input_iter("s")
-        trg_iter = input_iter("t")
+        src_iter = input_iter("s", sent_stoks)
+        trg_iter = input_iter("t", sent_ttoks)
 
         t10 = time.time()
         with TemporaryDirectory() as td:
             fwd_fp = os.path.join(td, "req.fwd")
             rev_fp = os.path.join(td, "req.rev")
+            fsc_fp = os.path.join(td, "rsc.fwd") if scoring else None
+            rsc_fp = os.path.join(td, "rsc.rev") if scoring else None
 
             aligner.n_iterations = iters
             aligner.n_samplers = samplers
@@ -102,15 +118,30 @@ def create_app():
                 aligner.align(src_iter, trg_iter,
                               links_filename_fwd=fwd_fp,
                               links_filename_rev=rev_fp,
+                              scores_filename_fwd=fsc_fp,
+                              scores_filename_rev=rsc_fp,
                               trust_sents=trust_sents,
                               quiet=log_level != "debug")
             except InputFormatException as e:
                 return make_response(e.msg, 400)
 
+            scores = []
+            if scoring:
+                with open(fsc_fp, 'r') as fscf, open(rsc_fp, 'r') as rscf:
+                    for fs, rs in zip(fscf, rscf):
+                        scores.append((float(fs), float(rs)))
+
             with open(fwd_fp, 'r') as fwdf, open(rev_fp, 'r') as revf:
                 fr_pairs = []
-                for f, r in zip(fwdf, revf):
-                    fr_pairs.append({ "fwd": f.strip(), "rev": r.strip() })
+                for n, (f, r) in enumerate(zip(fwdf, revf)):
+                    res = { "fwd": f.strip(), "rev": r.strip() }
+                    if scoring:
+                        fs, rs = scores[n]
+                        res["score_fwd"] = fs
+                        res["score_rev"] = rs
+                        res["norm_score_fwd"] = fs - math.log(sent_ttoks[n])
+                        res["norm_score_rev"] = rs - math.log(sent_stoks[n])
+                    fr_pairs.append(res)
             if len(fr_pairs) != num_sents:
                 raise Exception(f'Number of alignments differ from inputs: {len(fr_pairs)} != {num_sents}')
             res = { "aligns": fr_pairs }
