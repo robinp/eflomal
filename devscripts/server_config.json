@@ -1,0 +1,8 @@
+{
+  "aligners": [
+    { "name": "my-align",
+      "priors": "testdata/my-align.pri"
+    }
+  ],
+  "log_level": "debug"
+}
